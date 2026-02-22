@@ -314,6 +314,17 @@ TIGER 미국S&amp;P500 25120" rows="4"></textarea>
 
     <div class="note" id="gsStatus">상태: -</div>
 
+    <div class="row" style="margin-top:10px">
+      <div class="hint">백업: 혹시 모를 상황을 대비해 데이터 전체를 파일로 저장/복원할 수 있어요.</div>
+      <div class="grow"></div>
+      <div class="btns">
+        <button class="secondary" id="gsBackupBtn" type="button">백업 다운로드(JSON)</button>
+        <label class="btn-like" for="gsRestoreFile">백업으로 복원</label>
+        <input id="gsRestoreFile" type="file" accept="application/json" style="display:none" />
+      </div>
+    </div>
+
+
     <details style="margin-top:8px">
       <summary>설정 방법(처음 한 번만)</summary>
       <ol class="ol">

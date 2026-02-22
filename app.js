@@ -3,6 +3,8 @@ const CLOSE_KEY = "stockTradeCloseByDate.v1";
 
 const COLLAPSE_KEY = "stockTradeCollapseDates.v1";
 const CLOUD_CFG_KEY = "stockTradeCloudCfg.v1";
+const DIRTY_KEY = "stockTradeDirty.v1";
+const LAST_SYNC_KEY = "stockTradeLastSync.v1";
 const $ = (id) => document.getElementById(id);
 const ASOF_KEY = "stockTradeAsOfDate.v1";
 
@@ -131,16 +133,31 @@ function saveCloudCfg(cfg) {
 let cloudCfg = loadCloudCfg();
 let cloudUploadTimer = null;
 
-function setCloudStatus(msg) {
+function setCloudStatus(msg, level) {
   const el = $('gsStatus');
-  if (el) el.textContent = `상태: ${msg}`;
+  if (!el) return;
+  el.textContent = `상태: ${msg}`;
+  el.classList.remove('ok','err');
+  if (level === 'ok') el.classList.add('ok');
+  if (level === 'err') el.classList.add('err');
 }
 
 function canCloud() {
   return !!(cloudCfg.url && cloudCfg.token);
 }
 
+function markDirty() {
+  try { localStorage.setItem(DIRTY_KEY, "1"); } catch {}
+}
+function clearDirty() {
+  try { localStorage.removeItem(DIRTY_KEY); } catch {}
+}
+function isDirty() {
+  try { return localStorage.getItem(DIRTY_KEY) === "1"; } catch { return false; }
+}
+
 function scheduleCloudUpload(reason) {
+  markDirty();
   if (!cloudCfg.auto) return;
   if (!canCloud()) return;
   if (cloudUploadTimer) clearTimeout(cloudUploadTimer);
@@ -177,7 +194,9 @@ async function cloudSaveAll() {
     baseDate: (document.getElementById('asOfDate')?.value || ''),
   };
   await cloudCall('save', payload);
-  setCloudStatus('업로드 완료 ✅');
+  clearDirty();
+  try { localStorage.setItem(LAST_SYNC_KEY, new Date().toISOString()); } catch {}
+  setCloudStatus('업로드 완료 ✅', 'ok');
 }
 
 async function cloudLoadAll() {
@@ -202,7 +221,66 @@ async function cloudLoadAll() {
   localStorage.setItem(COLLAPSE_KEY, JSON.stringify(collapsedDates));
 
   renderFull();
-  setCloudStatus('불러오기 완료 ✅');
+  setCloudStatus('불러오기 완료 ✅', 'ok');
+}
+
+function setupBackupUI() {
+  const backupBtn = $('gsBackupBtn');
+  const restoreFile = $('gsRestoreFile');
+  if (!backupBtn || !restoreFile) return;
+
+  backupBtn.addEventListener('click', () => {
+    // 최신 로컬 상태를 파일로 저장
+    const payload = {
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      rows,
+      closeMap,
+      collapsedDates,
+      baseDate: (document.getElementById('asOfDate')?.value || localStorage.getItem(ASOF_KEY) || ''),
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `stock-dashboard-backup-${todayISO()}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    setCloudStatus('백업 파일 다운로드 완료 ✅', 'ok');
+  });
+
+  restoreFile.addEventListener('change', async () => {
+    const file = restoreFile.files && restoreFile.files[0];
+    if (!file) return;
+    try {
+      const txt = await file.text();
+      const obj = JSON.parse(txt);
+      if (!obj || typeof obj !== 'object') throw new Error('백업 파일 형식이 이상해요');
+      rows = Array.isArray(obj.rows) ? obj.rows : [];
+      closeMap = (obj.closeMap && typeof obj.closeMap === 'object') ? obj.closeMap : {};
+      collapsedDates = (obj.collapsedDates && typeof obj.collapsedDates === 'object') ? obj.collapsedDates : {};
+      const bd = normDateIso(obj.baseDate || '');
+      const el = document.getElementById('asOfDate');
+      if (el && bd) el.value = bd;
+      if (bd) localStorage.setItem(ASOF_KEY, bd);
+
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(rows));
+      localStorage.setItem(CLOSE_KEY, JSON.stringify(closeMap));
+      localStorage.setItem(COLLAPSE_KEY, JSON.stringify(collapsedDates));
+
+      renderFull();
+      setCloudStatus('백업으로 복원 완료 ✅ (원하면 클라우드 저장 눌러서 업로드)', 'ok');
+      markDirty();
+      // 복원 후 자동 저장 켜져 있으면 업로드 예약
+      scheduleCloudUpload('restore');
+    } catch (e) {
+      setCloudStatus(`복원 실패 ❌ (${e.message})`, 'err');
+    } finally {
+      restoreFile.value = '';
+    }
+  });
 }
 
 function setupCloudUI() {
@@ -230,13 +308,13 @@ function setupCloudUI() {
   saveBtn.addEventListener('click', async () => {
     persist();
     try { await cloudSaveAll(); }
-    catch (e) { setCloudStatus(`실패 ❌ (${e.message})`); }
+    catch (e) { setCloudStatus(`실패 ❌ (${e.message})`, 'err'); }
   });
 
   loadBtn.addEventListener('click', async () => {
     persist();
     try { await cloudLoadAll(); }
-    catch (e) { setCloudStatus(`실패 ❌ (${e.message})`); }
+    catch (e) { setCloudStatus(`실패 ❌ (${e.message})`, 'err'); }
   });
 }
 function setGroupCollapsed(dateIso, isCollapsed) {
@@ -1205,6 +1283,20 @@ let rows = [];
 document.addEventListener("DOMContentLoaded", () => {
   setupTabs();
   setupCloudUI();
+    setupBackupUI();
+    // AUTO_CLOUD_BOOT: URL/토큰이 저장돼 있으면 자동 불러오기
+    try {
+      cloudCfg = loadCloudCfg();
+      if (canCloud()) {
+        // 로컬에 수정중(Dirty)이면 덮어쓰지 않고 안내
+        if (isDirty()) {
+          setCloudStatus('로컬 변경사항이 있어 자동 불러오기를 건너뜀(저장/불러오기 선택)');
+        } else {
+          cloudLoadAll().catch(e => setCloudStatus(`자동 불러오기 실패 ❌ (${e.message})`, 'err'));
+        }
+      }
+    } catch {}
+
 
   rows = loadRows();
     $("asOfDate").value = (localStorage.getItem(ASOF_KEY) || todayISO());
@@ -1239,8 +1331,15 @@ document.addEventListener("DOMContentLoaded", () => {
   $("holdScopeISA").addEventListener("click", () => setScope("ISA"));
   $("holdScopeGEN").addEventListener("click", () => setScope("GEN"));
 
-  if (!rows.length) addEmptyRow();
-  else renderFull();
+  if (!rows.length) {
+    // 첫 실행(로컬 데이터 없음)에는 "화면용 빈 행"만 보여주고,
+    // 사용자가 입력/행추가를 하기 전까지는 로컬/클라우드에 저장하지 않음(빈 데이터로 덮어쓰기 방지)
+    const seed = $("asOfDate").value || todayISO();
+    rows.push(blankRow(seed));
+    renderFull();
+  } else {
+    renderFull();
+  }
 });
 
 function fmtQty(n) {
