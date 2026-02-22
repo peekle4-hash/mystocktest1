@@ -845,6 +845,127 @@ function setKpi(id, value) {
 // --- Rendering: grouped by date (desc) ---
 let holdScope = "ALL"; // ALL | ISA | GEN
 
+// ===== 실시간 시세(TradingView 위젯) =====
+// 회사명은 입력 방식이 제각각이라, 공백/대소문자/기호를 제거한 '정규화 키'로 매칭
+function normName(s){
+  return String(s||"")
+    .toLowerCase()
+    .replace(/\s+/g,"")
+    .replace(/[·\.\(\)\[\]\-_/&+]/g,"")
+    .trim();
+}
+
+// KRX 종목/ETF 코드 매핑 (필요하면 여기만 추가하면 됨)
+// - TIGER 미국S&P500: 360750 citeturn0search4
+// - KODEX 미국나스닥100: 379810 citeturn0search1
+// - TIGER 미국배당다우존스: 458730 citeturn0search10
+// - KODEX 200TR: 278530 citeturn1search4
+// - TIGER 반도체TOP10: 396500 citeturn0search7
+// - PLUS 고배당주: 161510 citeturn1search13
+// - KODEX 코스닥150: 229200 citeturn1search14
+// - TIGER 은행고배당플러스TOP10: 466940 citeturn1search7
+// - KODEX 200: 069500 citeturn2search16
+const TV_SYMBOL_BY_NAME = {
+  // 네가 적어준 명칭(표에 그대로 들어올 가능성 높은 것들)
+  [normName("미래에셋증권")]: "KRX:006800",
+  [normName("한화시스템")]: "KRX:272210",
+  [normName("삼성전자")]: "KRX:005930",
+  [normName("sk하이닉스")]: "KRX:000660",
+  [normName("현대차")]: "KRX:005380",
+  [normName("우리기술")]: "KRX:032820",
+  [normName("우리금융지주")]: "KRX:316140",
+
+  // 소문자/축약 형태로 입력한 경우
+  [normName("tiger 미국s&p500")]: "KRX:360750",
+
+  // 실사용에서 자주 나오는 변형(공백/대소문자)
+  [normName("TIGER 미국S&P500")]: "KRX:360750",
+  [normName("TIGER미국S&P500")]: "KRX:360750",
+  [normName("KODEX 미국나스닥100")]: "KRX:379810",
+  [normName("KOKEX 미국나스닥10")]: "KRX:379810", // 사용자가 오타로 적은 경우 대비
+  [normName("TIGER 미국배당다우존스")]: "KRX:458730",
+  [normName("KODEX 200TR")]: "KRX:278530",
+  [normName("TIGER 반도체TOP10")]: "KRX:396500",
+  [normName("PLUS 고배당주")]: "KRX:161510",
+  [normName("KODEX 코스닥150")]: "KRX:229200",
+  [normName("TIGER 은행고배당플러스TOP10")]: "KRX:466940",
+  [normName("KODEX 200")]: "KRX:069500",
+};
+
+function getTvSymbol(company){
+  const k = normName(company);
+  return TV_SYMBOL_BY_NAME[k] || null;
+}
+
+function openPriceModal(company){
+  const modal = document.getElementById("priceModal");
+  const title = document.getElementById("priceModalTitle");
+  const sub = document.getElementById("priceModalSub");
+  const wrap = document.getElementById("tvWidgetWrap");
+  if (!modal || !title || !sub || !wrap) return;
+
+  const symbol = getTvSymbol(company);
+  title.textContent = company;
+  sub.textContent = symbol ? `TradingView: ${symbol}` : "이름→종목코드 매칭이 없어서 위젯을 띄울 수 없어요 (아래 매핑에 추가 필요)";
+
+  wrap.innerHTML = "";
+  if (symbol) {
+    const container = document.createElement("div");
+    container.className = "tradingview-widget-container";
+    container.innerHTML = `
+      <div class="tradingview-widget-container__widget"></div>
+    `;
+    wrap.appendChild(container);
+
+    // TradingView Symbol Overview 위젯
+    const script = document.createElement("script");
+    script.type = "text/javascript";
+    script.src = "https://s3.tradingview.com/external-embedding/embed-widget-symbol-overview.js";
+    script.async = true;
+    script.textContent = JSON.stringify({
+      symbols: [[company, symbol]],
+      chartOnly: false,
+      width: "100%",
+      height: 420,
+      locale: "kr",
+      colorTheme: "light",
+      autosize: true,
+      showVolume: true,
+      showMA: false,
+      hideDateRanges: false,
+      hideMarketStatus: false,
+      hideSymbolLogo: false,
+      scalePosition: "right",
+      scaleMode: "Normal",
+      fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial",
+      fontSize: "12",
+    });
+    container.appendChild(script);
+  }
+
+  modal.classList.add("open");
+  modal.setAttribute("aria-hidden","false");
+}
+
+function closePriceModal(){
+  const modal = document.getElementById("priceModal");
+  const wrap = document.getElementById("tvWidgetWrap");
+  if (!modal) return;
+  modal.classList.remove("open");
+  modal.setAttribute("aria-hidden","true");
+  if (wrap) wrap.innerHTML = "";
+}
+
+// 모달 닫기 이벤트(1회 바인딩)
+document.addEventListener("click", (e) => {
+  const t = e.target;
+  if (!(t instanceof Element)) return;
+  if (t.matches("[data-modal-close]")) closePriceModal();
+});
+document.addEventListener("keydown", (e)=>{
+  if (e.key === "Escape") closePriceModal();
+});
+
 function buildHoldTables(ledger) {
   const allItems = Array.from(ledger.positions.values())
     .filter(p => (p.company || "").trim().length > 0)
@@ -933,7 +1054,7 @@ function renderHoldTableTo(tableId, items, emptyMsg) {
       : `<td>${Number.isFinite(p.close) ? fmtMoney(p.close) : "-"}</td>`;
 
     tr.innerHTML = `
-      <td>${p.company}</td>
+      <td><button class="linklike" type="button" data-company-click="${p.company}">${p.company}</button></td>
       <td>${p.account}</td>
       <td>${fmtQty(p.qty)}</td>
       <td>${Number.isFinite(p.avg) ? fmtMoney(p.avg) : "-"}</td>
@@ -945,6 +1066,12 @@ function renderHoldTableTo(tableId, items, emptyMsg) {
       <td>${Number.isFinite(p.ret) ? fmtPct(p.ret) : "-"}</td>
     `;
     tbody.appendChild(tr);
+
+    // 기업명 클릭 → 실시간 시세 모달
+    const btn = tr.querySelector("button[data-company-click]");
+    if (btn) {
+      btn.addEventListener("click", () => openPriceModal(p.company));
+    }
   }
 
   if (isCurrent) {

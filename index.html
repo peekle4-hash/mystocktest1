@@ -366,6 +366,24 @@
       <p><code>side</code>는 <b>BUY</b> 또는 <b>SELL</b> (또는 매수/매도) 가능.</p>
     </details>
   </section>
+
+  <!-- (추가) 종목 실시간 시세 모달 -->
+  <div id="priceModal" class="modal" aria-hidden="true">
+    <div class="modal-backdrop" data-modal-close></div>
+    <div class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="priceModalTitle">
+      <div class="modal-head">
+        <div>
+          <div class="modal-title" id="priceModalTitle">-</div>
+          <div class="modal-sub" id="priceModalSub">-</div>
+        </div>
+        <button class="modal-close" type="button" data-modal-close aria-label="닫기">✕</button>
+      </div>
+      <div class="modal-body">
+        <div id="tvWidgetWrap"></div>
+        <div class="modal-note">※ TradingView 위젯(무료)로 표시됩니다. 실시간/지연 여부는 거래소/데이터 제공 조건에 따라 달라요.</div>
+      </div>
+    </div>
+  </div>
 </main>
 
 <footer>
