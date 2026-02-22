@@ -748,7 +748,7 @@ function renderHoldTableTo(tableId, items, emptyMsg) {
             data-hold-close="${p.company}"
             value="${Number.isFinite(p.close) ? p.close : ""}"
             placeholder="-"
-            style="width:90px;text-align:right"></td>`
+            style="width:90px;text-align:left"></td>`
       : `<td>${Number.isFinite(p.close) ? fmtMoney(p.close) : "-"}</td>`;
 
     tr.innerHTML = `
